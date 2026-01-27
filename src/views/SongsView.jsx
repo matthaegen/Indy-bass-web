@@ -1,9 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, logActivity, earnMilestone } from '../db/database';
 import {
   Plus, Edit3, Archive, Trash2, Check, X, ChevronDown,
 } from 'lucide-react';
+
+// Load YouTube IFrame API
+let youtubeApiReady = false;
+let youtubeApiCallbacks = [];
+
+if (typeof window !== 'undefined' && !window.YT) {
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+  window.onYouTubeIframeAPIReady = () => {
+    youtubeApiReady = true;
+    youtubeApiCallbacks.forEach(cb => cb());
+    youtubeApiCallbacks = [];
+  };
+} else if (window.YT && window.YT.Player) {
+  youtubeApiReady = true;
+}
+
+function useYouTubeApi() {
+  const [ready, setReady] = useState(youtubeApiReady);
+
+  useEffect(() => {
+    if (youtubeApiReady) {
+      setReady(true);
+    } else {
+      const callback = () => setReady(true);
+      youtubeApiCallbacks.push(callback);
+      return () => {
+        youtubeApiCallbacks = youtubeApiCallbacks.filter(cb => cb !== callback);
+      };
+    }
+  }, []);
+
+  return ready;
+}
 
 // Extract YouTube video ID from URL
 function getYouTubeId(url) {
@@ -236,6 +273,9 @@ function SongsView() {
 
 function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onToggleExpand, onEdit }) {
   const [speed, setSpeed] = useState(song.lastSpeed);
+  const playerRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const apiReady = useYouTubeApi();
 
   const notes = useLiveQuery(
     () => db.practiceNotes.where('songId').equals(song.id).reverse().sortBy('date'),
@@ -243,14 +283,63 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
   );
 
   const latestNote = notes?.[0];
-  const olderNotes = notes?.slice(1) || []; // Skip the first note since it's shown in preview
+  const olderNotes = notes?.slice(1) || [];
+
+  const videoId = getYouTubeId(song.youtubeURL);
+
+  // Initialize YouTube player when expanded
+  useEffect(() => {
+    if (!isExpanded || !videoId || !apiReady || !playerContainerRef.current) return;
+
+    // Create unique ID for this player
+    const playerId = `player-${song.id}`;
+    playerContainerRef.current.id = playerId;
+
+    // Destroy existing player if any
+    if (playerRef.current) {
+      playerRef.current.destroy();
+    }
+
+    playerRef.current = new window.YT.Player(playerId, {
+      videoId: videoId,
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: {
+        rel: 0,
+        modestbranding: 1,
+        playsinline: 1,
+        iv_load_policy: 3,
+        fs: 1,
+      },
+      events: {
+        onReady: (event) => {
+          event.target.setPlaybackRate(speed);
+        },
+      },
+    });
+
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [isExpanded, videoId, apiReady, song.id]);
+
+  // Update playback rate when speed changes
+  useEffect(() => {
+    if (playerRef.current && playerRef.current.setPlaybackRate) {
+      try {
+        playerRef.current.setPlaybackRate(speed);
+      } catch (e) {
+        // Player might not be ready yet
+      }
+    }
+  }, [speed]);
 
   const handleSpeedChange = async (newSpeed) => {
     setSpeed(newSpeed);
     await db.songs.update(song.id, { lastSpeed: newSpeed });
   };
-
-  const videoId = getYouTubeId(song.youtubeURL);
 
   return (
     <div className={`song-row ${isSelected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}>
@@ -297,7 +386,7 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
             <div className="speed-slider-row">
               <input
                 type="range"
-                min="0.5"
+                min="0.25"
                 max="1"
                 step="0.05"
                 value={speed}
@@ -310,12 +399,7 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
           {/* Embedded YouTube Video */}
           {videoId ? (
             <div className="video-container">
-              <iframe
-                src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&disablekb=0`}
-                title={`${song.title} - ${song.artist}`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              <div ref={playerContainerRef} style={{ width: '100%', aspectRatio: '16/9' }} />
             </div>
           ) : (
             <div className="no-video-message">
