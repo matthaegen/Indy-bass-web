@@ -18,7 +18,7 @@ function SongsView() {
   const [batchSpeed, setBatchSpeed] = useState(0.75);
 
   const songs = useLiveQuery(
-    () => db.songs.where('isArchived').equals(showArchived ? 1 : 0).sortBy('sortOrder'),
+    () => db.songs.filter(song => song.isArchived === showArchived).sortBy('sortOrder'),
     [showArchived]
   );
 
