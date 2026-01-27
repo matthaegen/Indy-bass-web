@@ -1,16 +1,19 @@
 :root {
-  --primary: #6366f1;
-  --primary-dark: #4f46e5;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --bg: #0f0f0f;
-  --bg-card: #1a1a1a;
-  --bg-elevated: #262626;
-  --text: #ffffff;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --border: #333;
+  --primary: #e879a9;
+  --primary-dark: #d65d8c;
+  --primary-light: #f5b8d0;
+  --secondary: #9b7ed9;
+  --accent: #7dd3c0;
+  --success: #7dd9a0;
+  --warning: #f5c842;
+  --danger: #f27a7a;
+  --bg: #fef9f3;
+  --bg-card: #ffffff;
+  --bg-elevated: #fff5eb;
+  --text: #4a3f35;
+  --text-secondary: #7a6b5e;
+  --text-muted: #a89888;
+  --border: #f0e4d8;
   --nav-height: 80px;
   --header-height: 60px;
 }
@@ -46,7 +49,7 @@ body {
 
 input, textarea, button {
   font-family: inherit;
-  font-size: 16px; /* Prevents iOS zoom */
+  font-size: 16px;
 }
 
 button {
@@ -59,8 +62,8 @@ button {
 
 input, textarea {
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
   padding: 12px 16px;
   color: var(--text);
   width: 100%;
@@ -73,10 +76,11 @@ input:focus, textarea:focus {
 
 input[type="range"] {
   -webkit-appearance: none;
-  background: var(--bg-elevated);
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: 8px;
   height: 8px;
   padding: 0;
+  border: none;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -86,4 +90,5 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(232, 121, 169, 0.4);
 }

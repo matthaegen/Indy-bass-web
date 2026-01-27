@@ -1,19 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, logActivity, earnMilestone } from '../db/database';
 import {
-  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, ChevronUp,
-  Play, Pause, SkipBack, SkipForward, ExternalLink, GripVertical
+  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown,
 } from 'lucide-react';
+
+// Extract YouTube video ID from URL
+function getYouTubeId(url) {
+  if (!url) return null;
+  const match = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
 
 function SongsView() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showArchived, setShowArchived] = useState(false);
-  const [expandedNotes, setExpandedNotes] = useState(new Set());
+  const [expandedSongId, setExpandedSongId] = useState(null);
   const [showAddSong, setShowAddSong] = useState(false);
   const [editingSong, setEditingSong] = useState(null);
-  const [playingSong, setPlayingSong] = useState(null);
   const [showBatchSpeed, setShowBatchSpeed] = useState(false);
   const [batchSpeed, setBatchSpeed] = useState(0.75);
 
@@ -63,29 +68,24 @@ function SongsView() {
     setSelectedIds(new Set());
   };
 
-  const handlePlaySong = async (song) => {
-    setPlayingSong(song);
-    await db.songs.update(song.id, {
-      timesOpened: song.timesOpened + 1,
-      lastPracticed: new Date()
-    });
-    await logActivity('songs');
-    await earnMilestone('Song Explorer');
+  const handleExpandSong = async (song) => {
+    if (expandedSongId === song.id) {
+      setExpandedSongId(null);
+    } else {
+      setExpandedSongId(song.id);
+      await db.songs.update(song.id, {
+        timesOpened: song.timesOpened + 1,
+        lastPracticed: new Date()
+      });
+      await logActivity('songs');
+      await earnMilestone('Song Explorer');
+    }
   };
 
   const exitEditMode = () => {
     setIsEditing(false);
     setSelectedIds(new Set());
   };
-
-  if (playingSong) {
-    return (
-      <SongPlayer
-        song={playingSong}
-        onClose={() => setPlayingSong(null)}
-      />
-    );
-  }
 
   if (showAddSong) {
     return (
@@ -94,7 +94,9 @@ function SongsView() {
         onSave={async (songData) => {
           const maxOrder = songs?.length ? Math.max(...songs.map(s => s.sortOrder)) + 1 : 0;
           const songId = await db.songs.add({
-            ...songData,
+            title: songData.title,
+            artist: songData.artist,
+            youtubeURL: songData.youtubeURL,
             sortOrder: maxOrder,
             isArchived: false,
             lastSpeed: 0.5,
@@ -166,24 +168,15 @@ function SongsView() {
 
       <div className="songs-list">
         {songs?.map(song => (
-          <SongRow
+          <SongCard
             key={song.id}
             song={song}
             isEditing={isEditing}
             isSelected={selectedIds.has(song.id)}
+            isExpanded={expandedSongId === song.id}
             onToggleSelect={() => handleToggleSelect(song.id)}
-            onPlay={() => handlePlaySong(song)}
+            onToggleExpand={() => handleExpandSong(song)}
             onEdit={() => setEditingSong(song)}
-            isNotesExpanded={expandedNotes.has(song.id)}
-            onToggleNotes={() => {
-              const newExpanded = new Set(expandedNotes);
-              if (newExpanded.has(song.id)) {
-                newExpanded.delete(song.id);
-              } else {
-                newExpanded.add(song.id);
-              }
-              setExpandedNotes(newExpanded);
-            }}
           />
         ))}
         {songs?.length === 0 && (
@@ -241,17 +234,27 @@ function SongsView() {
   );
 }
 
-function SongRow({ song, isEditing, isSelected, onToggleSelect, onPlay, onEdit, isNotesExpanded, onToggleNotes }) {
+function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onToggleExpand, onEdit }) {
+  const [speed, setSpeed] = useState(song.lastSpeed);
+
   const notes = useLiveQuery(
     () => db.practiceNotes.where('songId').equals(song.id).reverse().sortBy('date'),
     [song.id]
   );
 
   const latestNote = notes?.[0];
+  const olderNotes = notes?.slice(1) || []; // Skip the first note since it's shown in preview
+
+  const handleSpeedChange = async (newSpeed) => {
+    setSpeed(newSpeed);
+    await db.songs.update(song.id, { lastSpeed: newSpeed });
+  };
+
+  const videoId = getYouTubeId(song.youtubeURL);
 
   return (
-    <div className={`song-row ${isSelected ? 'selected' : ''}`}>
-      <div className="song-main" onClick={isEditing ? onToggleSelect : onPlay}>
+    <div className={`song-row ${isSelected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}>
+      <div className="song-header" onClick={isEditing ? onToggleSelect : onToggleExpand}>
         {isEditing && (
           <div className={`checkbox ${isSelected ? 'checked' : ''}`}>
             {isSelected && <Check size={16} />}
@@ -260,34 +263,76 @@ function SongRow({ song, isEditing, isSelected, onToggleSelect, onPlay, onEdit, 
         <div className="song-info">
           <h3>{song.title}</h3>
           <p className="artist">{song.artist}</p>
-          <div className="song-meta">
-            <span className="speed">{song.lastSpeed.toFixed(2)}x</span>
-            {song.lastPracticed && (
-              <span className="last-practiced">
-                Last: {new Date(song.lastPracticed).toLocaleDateString()}
-              </span>
-            )}
-          </div>
         </div>
-        {!isEditing && (
-          <button className="edit-song-button" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
-            <Edit3 size={18} />
-          </button>
-        )}
+        <div className="song-actions">
+          {!isEditing && (
+            <>
+              <button
+                className="edit-song-button"
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              >
+                <Edit3 size={18} />
+              </button>
+              <button className={`expand-button ${isExpanded ? 'expanded' : ''}`}>
+                <ChevronDown size={20} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {latestNote && (
-        <div className="song-notes">
-          <div className="notes-preview" onClick={onToggleNotes}>
-            <p className="note-content">{latestNote.content}</p>
-            {notes && notes.length > 1 && (
-              <button className="expand-notes">
-                {isNotesExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                {notes.length} notes
-              </button>
-            )}
+      {/* Preview note when collapsed */}
+      {!isExpanded && latestNote && (
+        <div className="song-notes-section" style={{ padding: '0 16px 16px' }}>
+          <p className="notes-preview-text">{latestNote.content}</p>
+        </div>
+      )}
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="song-expanded">
+          {/* Speed Control */}
+          <div className="speed-control-inline">
+            <label>Playback Speed</label>
+            <div className="speed-slider-row">
+              <input
+                type="range"
+                min="0.5"
+                max="1"
+                step="0.05"
+                value={speed}
+                onChange={e => handleSpeedChange(parseFloat(e.target.value))}
+              />
+              <span className="speed-value-badge">{speed.toFixed(2)}x</span>
+            </div>
           </div>
-          {isNotesExpanded && <NoteThread songId={song.id} notes={notes} />}
+
+          {/* Embedded YouTube Video */}
+          {videoId ? (
+            <div className="video-container">
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&disablekb=0`}
+                title={`${song.title} - ${song.artist}`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          ) : (
+            <div className="no-video-message">
+              No video link added yet. Edit this song to add a YouTube URL.
+            </div>
+          )}
+
+          {/* Notes Section */}
+          <div className="song-notes-section">
+            <h4>Practice Notes</h4>
+            {latestNote && (
+              <p className="notes-preview-text" style={{ marginBottom: '12px' }}>
+                {latestNote.content}
+              </p>
+            )}
+            <NoteThread songId={song.id} notes={olderNotes} />
+          </div>
         </div>
       )}
     </div>
@@ -321,103 +366,18 @@ function NoteThread({ songId, notes }) {
           <Plus size={18} />
         </button>
       </div>
-      <div className="notes-list">
-        {notes?.map(note => (
-          <div key={note.id} className="note-item">
-            <p>{note.content}</p>
-            <span className="note-date">
-              {new Date(note.date).toLocaleDateString()}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SongPlayer({ song, onClose }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState(song.lastSpeed);
-  const [currentTime, setCurrentTime] = useState(0);
-  const playerRef = useRef(null);
-  const intervalRef = useRef(null);
-
-  useEffect(() => {
-    // Update speed in database when changed
-    db.songs.update(song.id, { lastSpeed: speed });
-  }, [speed, song.id]);
-
-  useEffect(() => {
-    // Track practice time
-    if (isPlaying) {
-      intervalRef.current = setInterval(() => {
-        setCurrentTime(t => t + 1);
-      }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [isPlaying]);
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleOpenYoutube = () => {
-    if (song.youtubeURL) {
-      window.open(song.youtubeURL, '_blank');
-    }
-  };
-
-  return (
-    <div className="song-player">
-      <header className="player-header">
-        <button onClick={onClose} className="back-button">
-          <X size={24} />
-        </button>
-        <div className="player-title">
-          <h2>{song.title}</h2>
-          <p>{song.artist}</p>
+      {notes && notes.length > 0 && (
+        <div className="notes-list">
+          {notes.map(note => (
+            <div key={note.id} className="note-item">
+              <p>{note.content}</p>
+              <span className="note-date">
+                {new Date(note.date).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
         </div>
-      </header>
-
-      <div className="player-content">
-        <div className="player-time">{formatTime(currentTime)}</div>
-
-        <div className="speed-control">
-          <label>Playback Speed</label>
-          <input
-            type="range"
-            min="0.5"
-            max="1"
-            step="0.05"
-            value={speed}
-            onChange={e => setSpeed(parseFloat(e.target.value))}
-          />
-          <span className="speed-value">{speed.toFixed(2)}x</span>
-        </div>
-
-        <div className="player-controls">
-          <button onClick={() => setCurrentTime(Math.max(0, currentTime - 10))}>
-            <SkipBack size={32} />
-          </button>
-          <button className="play-button" onClick={() => setIsPlaying(!isPlaying)}>
-            {isPlaying ? <Pause size={48} /> : <Play size={48} />}
-          </button>
-          <button onClick={() => setCurrentTime(currentTime + 10)}>
-            <SkipForward size={32} />
-          </button>
-        </div>
-
-        {song.youtubeURL && (
-          <button className="youtube-link" onClick={handleOpenYoutube}>
-            <ExternalLink size={18} />
-            Open in YouTube
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
