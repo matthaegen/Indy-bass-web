@@ -180,6 +180,11 @@
   flex-shrink: 0;
 }
 
+.practice-status.not-started {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
 .practice-status.in-progress {
   background: rgba(125, 217, 160, 0.2);
   color: #5cb87a;
@@ -212,11 +217,56 @@
   text-overflow: ellipsis;
 }
 
-.song-info .encouragement {
+/* Practice Progress */
+.practice-progress {
+  margin-top: 6px;
+}
+
+.practice-text {
   font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.practice-text.not-started {
+  color: var(--text-muted);
+}
+
+.practice-text.in-progress {
   color: #5cb87a;
   font-weight: 600;
-  margin-top: 2px;
+}
+
+.practice-text.complete {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.progress-bar-container {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 120px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar-fill.not-started {
+  background: var(--text-muted);
+  width: 0;
+}
+
+.progress-bar-fill.in-progress {
+  background: #5cb87a;
+}
+
+.progress-bar-fill.complete {
+  background: #16a34a;
 }
 
 .song-actions {

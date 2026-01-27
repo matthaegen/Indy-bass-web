@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, logActivity, earnMilestone } from '../db/database';
 import {
-  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle,
+  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle, PlayCircle,
 } from 'lucide-react';
 
 // Helper to get today's date string
@@ -429,13 +429,15 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
           </div>
         )}
 
-        {/* Practice status indicator - only show for non-archived songs */}
-        {!isEditing && !showArchived && practiceStatus !== 'no-video' && practiceStatus !== 'not-started' && (
+        {/* Practice status indicator - always show for non-archived songs with video */}
+        {!isEditing && !showArchived && practiceStatus !== 'no-video' && (
           <div className={`practice-status ${practiceStatus}`}>
             {practiceStatus === 'complete' ? (
               <CheckCircle size={24} />
-            ) : (
+            ) : practiceStatus === 'in-progress' ? (
               <Hourglass size={22} />
+            ) : (
+              <PlayCircle size={24} />
             )}
           </div>
         )}
@@ -443,9 +445,25 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
         <div className="song-info">
           <h3>{song.title}</h3>
           <p className="artist">{song.artist}</p>
-          {/* Show encouragement for in-progress */}
-          {!isEditing && !showArchived && practiceStatus === 'in-progress' && (
-            <p className="encouragement">{encouragement}</p>
+          {/* Practice status text and progress bar - only for non-archived with video */}
+          {!isEditing && !showArchived && practiceStatus !== 'no-video' && (
+            <div className="practice-progress">
+              <p className={`practice-text ${practiceStatus}`}>
+                {practiceStatus === 'complete'
+                  ? 'Great job today!'
+                  : practiceStatus === 'in-progress'
+                    ? encouragement
+                    : 'Not practiced yet today'}
+              </p>
+              {videoDuration > 0 && (
+                <div className="progress-bar-container">
+                  <div
+                    className={`progress-bar-fill ${practiceStatus}`}
+                    style={{ width: `${Math.min(100, (todayPracticeTime / videoDuration) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
         <div className="song-actions">
