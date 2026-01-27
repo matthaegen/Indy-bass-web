@@ -2,8 +2,24 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, logActivity, earnMilestone } from '../db/database';
 import {
-  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown,
+  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle,
 } from 'lucide-react';
+
+// Helper to get today's date string
+function getTodayString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// Encouraging messages for in-progress practice
+const encouragements = [
+  "Keep going!",
+  "You're doing great!",
+  "Almost there!",
+  "Nice work!",
+  "Keep it up!",
+  "Sounding good!",
+];
 
 // Load YouTube IFrame API
 let youtubeApiReady = false;
@@ -214,6 +230,7 @@ function SongsView() {
             onToggleSelect={() => handleToggleSelect(song.id)}
             onToggleExpand={() => handleExpandSong(song)}
             onEdit={() => setEditingSong(song)}
+            showArchived={showArchived}
           />
         ))}
         {songs?.length === 0 && (
@@ -271,10 +288,13 @@ function SongsView() {
   );
 }
 
-function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onToggleExpand, onEdit }) {
+function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onToggleExpand, onEdit, showArchived }) {
   const [speed, setSpeed] = useState(song.lastSpeed);
+  const [videoDuration, setVideoDuration] = useState(song.duration || 0);
   const playerRef = useRef(null);
   const playerContainerRef = useRef(null);
+  const trackingIntervalRef = useRef(null);
+  const lastTimeRef = useRef(0);
   const apiReady = useYouTubeApi();
 
   const notes = useLiveQuery(
@@ -287,15 +307,29 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
 
   const videoId = getYouTubeId(song.youtubeURL);
 
+  // Get today's practice time (reset if different day)
+  const todayString = getTodayString();
+  const todayPracticeTime = song.practiceTimeDate === todayString ? (song.todayPracticeTime || 0) : 0;
+
+  // Calculate practice status
+  const practiceStatus = videoDuration > 0
+    ? todayPracticeTime >= videoDuration
+      ? 'complete'
+      : todayPracticeTime > 0
+        ? 'in-progress'
+        : 'not-started'
+    : 'no-video';
+
+  // Get random encouragement
+  const encouragement = encouragements[Math.floor(song.id % encouragements.length)];
+
   // Initialize YouTube player when expanded
   useEffect(() => {
     if (!isExpanded || !videoId || !apiReady || !playerContainerRef.current) return;
 
-    // Create unique ID for this player
     const playerId = `player-${song.id}`;
     playerContainerRef.current.id = playerId;
 
-    // Destroy existing player if any
     if (playerRef.current) {
       playerRef.current.destroy();
     }
@@ -311,13 +345,58 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
         fs: 1,
       },
       events: {
-        onReady: (event) => {
+        onReady: async (event) => {
           event.target.setPlaybackRate(speed);
+          // Get video duration
+          const duration = event.target.getDuration();
+          if (duration && duration !== videoDuration) {
+            setVideoDuration(duration);
+            await db.songs.update(song.id, { duration });
+          }
+        },
+        onStateChange: (event) => {
+          // YT.PlayerState.PLAYING = 1
+          if (event.data === 1) {
+            // Start tracking playback time
+            lastTimeRef.current = playerRef.current.getCurrentTime();
+            trackingIntervalRef.current = setInterval(async () => {
+              if (!playerRef.current) return;
+              try {
+                const currentTime = playerRef.current.getCurrentTime();
+                const elapsed = currentTime - lastTimeRef.current;
+
+                // Only count if actually progressing (handles seeks/repeats)
+                if (elapsed > 0 && elapsed < 2) {
+                  const today = getTodayString();
+                  const currentPractice = song.practiceTimeDate === today
+                    ? (song.todayPracticeTime || 0)
+                    : 0;
+
+                  await db.songs.update(song.id, {
+                    todayPracticeTime: currentPractice + elapsed,
+                    practiceTimeDate: today,
+                  });
+                }
+                lastTimeRef.current = currentTime;
+              } catch (e) {
+                // Player might be destroyed
+              }
+            }, 1000);
+          } else {
+            // Paused, ended, or buffering - stop tracking
+            if (trackingIntervalRef.current) {
+              clearInterval(trackingIntervalRef.current);
+              trackingIntervalRef.current = null;
+            }
+          }
         },
       },
     });
 
     return () => {
+      if (trackingIntervalRef.current) {
+        clearInterval(trackingIntervalRef.current);
+      }
       if (playerRef.current) {
         playerRef.current.destroy();
         playerRef.current = null;
@@ -349,9 +428,25 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
             {isSelected && <Check size={16} />}
           </div>
         )}
+
+        {/* Practice status indicator - only show for non-archived songs */}
+        {!isEditing && !showArchived && practiceStatus !== 'no-video' && practiceStatus !== 'not-started' && (
+          <div className={`practice-status ${practiceStatus}`}>
+            {practiceStatus === 'complete' ? (
+              <CheckCircle size={24} />
+            ) : (
+              <Hourglass size={22} />
+            )}
+          </div>
+        )}
+
         <div className="song-info">
           <h3>{song.title}</h3>
           <p className="artist">{song.artist}</p>
+          {/* Show encouragement for in-progress */}
+          {!isEditing && !showArchived && practiceStatus === 'in-progress' && (
+            <p className="encouragement">{encouragement}</p>
+          )}
         </div>
         <div className="song-actions">
           {!isEditing && (
