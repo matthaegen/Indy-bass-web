@@ -307,9 +307,16 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
 
   const videoId = getYouTubeId(song.youtubeURL);
 
-  // Get today's practice time (reset if different day)
+  // Get today's practice time (reset if different day) - use local state for real-time updates
   const todayString = getTodayString();
-  const todayPracticeTime = song.practiceTimeDate === todayString ? (song.todayPracticeTime || 0) : 0;
+  const initialPracticeTime = song.practiceTimeDate === todayString ? (song.todayPracticeTime || 0) : 0;
+  const [todayPracticeTime, setTodayPracticeTime] = useState(initialPracticeTime);
+
+  // Sync with song prop when it changes (e.g., switching between songs or page reload)
+  useEffect(() => {
+    const newTime = song.practiceTimeDate === getTodayString() ? (song.todayPracticeTime || 0) : 0;
+    setTodayPracticeTime(newTime);
+  }, [song.id, song.todayPracticeTime, song.practiceTimeDate]);
 
   // Calculate practice status
   const practiceStatus = videoDuration > 0
