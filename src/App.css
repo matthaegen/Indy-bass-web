@@ -200,6 +200,29 @@
   min-width: 0;
 }
 
+.song-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.song-title-row h3 {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.last-practiced {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
 .song-info h3 {
   font-size: 16px;
   font-weight: 600;

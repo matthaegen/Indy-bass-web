@@ -129,8 +129,8 @@ function getStarterNote(title) {
 
 // Helper to get today's date string
 export function getTodayString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
+  return parts;
 }
 
 // Log activity for today

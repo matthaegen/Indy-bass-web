@@ -1,15 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, logActivity, earnMilestone } from '../db/database';
+import { db, logActivity, earnMilestone, getTodayString } from '../db/database';
 import {
   Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle, PlayCircle,
 } from 'lucide-react';
-
-// Helper to get today's date string
-function getTodayString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
 
 // Encouraging messages for in-progress practice
 const encouragements = [
@@ -327,6 +321,16 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
         : 'not-started'
     : 'no-video';
 
+  // Backfill lastCompleted for songs already at 100%
+  useEffect(() => {
+    if (practiceStatus === 'complete') {
+      const today = getTodayString();
+      if (!song.lastCompleted || song.lastCompleted !== today) {
+        db.songs.update(song.id, { lastCompleted: today });
+      }
+    }
+  }, [practiceStatus, song.id, song.lastCompleted]);
+
   // Get random encouragement
   const encouragement = encouragements[Math.floor(song.id % encouragements.length)];
 
@@ -375,14 +379,22 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
                 // Only count if actually progressing (handles seeks/repeats)
                 if (elapsed > 0 && elapsed < 2) {
                   const today = getTodayString();
-                  const currentPractice = song.practiceTimeDate === today
-                    ? (song.todayPracticeTime || 0)
+                  // Read current value from DB to avoid stale closure
+                  const songRecord = await db.songs.get(song.id);
+                  const currentPractice = songRecord && songRecord.practiceTimeDate === today
+                    ? (songRecord.todayPracticeTime || 0)
                     : 0;
 
-                  await db.songs.update(song.id, {
-                    todayPracticeTime: currentPractice + elapsed,
+                  const newPracticeTime = currentPractice + elapsed;
+                  const updateData = {
+                    todayPracticeTime: newPracticeTime,
                     practiceTimeDate: today,
-                  });
+                  };
+                  // Mark completion when practice time first reaches song duration
+                  if (songRecord.duration > 0 && newPracticeTime >= songRecord.duration && !songRecord.lastCompleted?.startsWith(today)) {
+                    updateData.lastCompleted = today;
+                  }
+                  await db.songs.update(song.id, updateData);
                 }
                 lastTimeRef.current = currentTime;
               } catch (e) {
@@ -450,7 +462,24 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
         )}
 
         <div className="song-info">
-          <h3>{song.title}</h3>
+          <div className="song-title-row">
+            <h3>{song.title}</h3>
+            {!isEditing && !showArchived && (
+              <span className="last-practiced">
+                Last practiced: {(() => {
+                  if (!song.lastCompleted) return 'never';
+                  const today = getTodayString();
+                  if (song.lastCompleted === today) return 'today!';
+                  const [y, m, d] = song.lastCompleted.split('-').map(Number);
+                  const [ty, tm, td] = today.split('-').map(Number);
+                  const completed = new Date(y, m - 1, d);
+                  const now = new Date(ty, tm - 1, td);
+                  const days = Math.round((now - completed) / (1000 * 60 * 60 * 24));
+                  return days === 1 ? '1 day ago' : `${days} days ago`;
+                })()}
+              </span>
+            )}
+          </div>
           <p className="artist">{song.artist}</p>
           {/* Practice status text and progress bar - only for non-archived with video */}
           {!isEditing && !showArchived && practiceStatus !== 'no-video' && (
