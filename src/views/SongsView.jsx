@@ -471,18 +471,18 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
     playerContainerRef.current.id = playerId;
 
     if (playerRef.current) {
-      playerRef.current.destroy();
+      try { playerRef.current.destroy(); } catch (e) { /* already destroyed */ }
     }
 
     playerRef.current = new window.YT.Player(playerId, {
       videoId: videoId,
-      host: 'https://www.youtube-nocookie.com',
       playerVars: {
         rel: 0,
         modestbranding: 1,
         playsinline: 1,
         iv_load_policy: 3,
         fs: 1,
+        origin: window.location.origin,
       },
       events: {
         onReady: async (event) => {
