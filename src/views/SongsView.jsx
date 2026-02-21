@@ -2,8 +2,105 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, logActivity, earnMilestone, getTodayString } from '../db/database';
 import {
-  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle, PlayCircle,
+  Plus, Edit3, Archive, Trash2, Check, X, ChevronDown, Hourglass, CheckCircle, PlayCircle, AlarmClock,
 } from 'lucide-react';
+
+// Clock display component with alarm
+function ClockCard({ isExpanded, onToggleExpand, onAlarm }) {
+  const [time, setTime] = useState(new Date());
+  const [alarmTime, setAlarmTime] = useState(null);
+  const [alarmFired, setAlarmFired] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setTime(now);
+
+      if (alarmTime && !alarmFired) {
+        const currentHHMM = now.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+        if (currentHHMM === alarmTime) {
+          setAlarmFired(true);
+          onAlarm(alarmTime);
+        }
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [alarmTime, alarmFired, onAlarm]);
+
+  const timeString = time.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const handleSetAlarm = (e) => {
+    setAlarmTime(e.target.value);
+    setAlarmFired(false);
+  };
+
+  const handleClearAlarm = () => {
+    setAlarmTime(null);
+    setAlarmFired(false);
+  };
+
+  // Format alarm time for display
+  const alarmDisplayTime = alarmTime
+    ? new Date(`2000-01-01T${alarmTime}`).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : null;
+
+  return (
+    <div className="clock-sticky-wrapper">
+      <div className={`clock-card ${isExpanded ? 'expanded' : ''}`}>
+        <div className="clock-header" onClick={onToggleExpand}>
+          <div className="clock-header-left">
+            <span className="clock-time">{timeString}</span>
+            {alarmTime && !isExpanded && (
+              <span className="alarm-badge">
+                <AlarmClock size={14} />
+                {alarmDisplayTime}
+              </span>
+            )}
+          </div>
+          <button className={`expand-button ${isExpanded ? 'expanded' : ''}`}>
+            <ChevronDown size={20} />
+          </button>
+        </div>
+        {isExpanded && (
+          <div className="clock-expanded">
+            <label className="alarm-label">Set Alarm</label>
+            <div className="alarm-input-row">
+              <input
+                type="time"
+                value={alarmTime || ''}
+                onChange={handleSetAlarm}
+                className="alarm-time-input"
+              />
+              {alarmTime && (
+                <button onClick={handleClearAlarm} className="alarm-clear-button">
+                  <X size={16} />
+                  Clear
+                </button>
+              )}
+            </div>
+            {alarmTime && (
+              <p className="alarm-status">
+                Alarm set for {alarmDisplayTime}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Encouraging messages for in-progress practice
 const encouragements = [
@@ -68,6 +165,8 @@ function SongsView() {
   const [editingSong, setEditingSong] = useState(null);
   const [showBatchSpeed, setShowBatchSpeed] = useState(false);
   const [batchSpeed, setBatchSpeed] = useState(0.75);
+  const [clockExpanded, setClockExpanded] = useState(false);
+  const [showAlarmPopup, setShowAlarmPopup] = useState(null);
 
   const songs = useLiveQuery(
     () => db.songs.filter(song => song.isArchived === showArchived).sortBy('sortOrder'),
@@ -214,6 +313,19 @@ function SongsView() {
       </header>
 
       <div className="songs-list">
+        <ClockCard
+          isExpanded={clockExpanded}
+          onToggleExpand={() => setClockExpanded(!clockExpanded)}
+          onAlarm={(alarmTime) => {
+            const displayTime = new Date(`2000-01-01T${alarmTime}`).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            });
+            setShowAlarmPopup(displayTime);
+            window.dispatchEvent(new Event('pause-practice'));
+          }}
+        />
         {songs?.map(song => (
           <SongCard
             key={song.id}
@@ -274,6 +386,23 @@ function SongsView() {
             <div className="modal-actions">
               <button onClick={() => setShowBatchSpeed(false)}>Cancel</button>
               <button onClick={handleBatchSpeed} className="primary-button">Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAlarmPopup && (
+        <div className="modal-overlay" onClick={() => setShowAlarmPopup(null)}>
+          <div className="modal alarm-modal" onClick={e => e.stopPropagation()}>
+            <div className="alarm-modal-icon">
+              <AlarmClock size={48} />
+            </div>
+            <h2>It is {showAlarmPopup}</h2>
+            <p className="alarm-modal-subtitle">Time to stop practicing!</p>
+            <div className="modal-actions">
+              <button onClick={() => setShowAlarmPopup(null)} className="primary-button">
+                Dismiss
+              </button>
             </div>
           </div>
         </div>
@@ -422,6 +551,21 @@ function SongCard({ song, isEditing, isSelected, isExpanded, onToggleSelect, onT
       }
     };
   }, [isExpanded, videoId, apiReady, song.id]);
+
+  // Pause video when alarm fires
+  useEffect(() => {
+    const handlePausePractice = () => {
+      if (playerRef.current && playerRef.current.pauseVideo) {
+        try {
+          playerRef.current.pauseVideo();
+        } catch (e) {
+          // Player might not be ready
+        }
+      }
+    };
+    window.addEventListener('pause-practice', handlePausePractice);
+    return () => window.removeEventListener('pause-practice', handlePausePractice);
+  }, []);
 
   // Update playback rate when speed changes
   useEffect(() => {
